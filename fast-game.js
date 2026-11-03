@@ -13,7 +13,15 @@ const FRUITS=['apple','orange','strawberry','lemon','grape','watermelon','bluebe
 const VALUES={apple:100,orange:110,strawberry:140,lemon:110,grape:160,watermelon:190,blueberry:130,peach:150,banana:145,cherry:160,kiwi:130,pineapple:190,mango:155,starfruit:200,dragonfruit:220,golden:600,rotten:-150};
 const IMAGES={},WORLDS=[],SFX={};
 const ASSET='game-assets/';
-const music=new Audio();music.loop=true;music.preload='none';music.volume=.28;
+const music=new Audio();
+const grooveMusic=new Audio();
+for(const track of [music,grooveMusic]){track.loop=true;track.preload='none'}
+music.volume=.37;grooveMusic.volume=.001;
+const WORLD_BPM=[116,126,132,121,144];
+const WORLD_SONGS=['Buttercup Bounce','Lemonade Parade','Sugarcloud Pop','Peachy Sunset Groove','Rainbow Finale Rush'];
+let grooveGain=.001,lastMusicSync=0,adaptiveMood='SOFT';
+function stopAllMusic(){music.pause();grooveMusic.pause()}
+
 let W=390,H=750,DPR=1,lastFrame=0,hudAt=0,lastTimestamp=0;
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const rand=(a,b)=>a+Math.random()*(b-a);
@@ -100,9 +108,10 @@ function completeRecipe(){
  game.time=Math.min(game.round+10,game.time+4.5);
  game.charge=Math.min(100,game.charge+18);
  addLabel(W*.5,H*.39,'ORDER COMPLETE!','#e7a54d');
- sound('combo',1.2);burst(W*.5,H*.40,'#fff19e',23);
- if(game.orderIndex+1<game.orders.length)startRecipe(game.orderIndex+1);
- else {
+ burst(W*.5,H*.40,'#fff19e',23);
+ if(game.orderIndex+1<game.orders.length){
+  sound('order');startRecipe(game.orderIndex+1);
+ }else {
   renderOrder();
   endLevel(true);
  }
@@ -144,14 +153,56 @@ function sprite(name){return loadImage(name==='mascot'?'mascot.png':'fruits/'+na
 function availableMusic(){
  if(profile.muted)return;
  const world=game.world;
- if(game.musicWorld!==world){music.src=ASSET+'audio/'+WORLD_ID[world]+'.mp3';game.musicWorld=world}
+ if(game.musicWorld!==world){
+  const id=WORLD_ID[world];
+  for(const [player,file] of [
+    [music,id+'.mp3'],[grooveMusic,id+'_groove.mp3']]){
+   player.src=ASSET+'audio/'+file;
+  }
+  game.musicWorld=world;grooveGain=.001;lastMusicSync=0;
+ }
  music.play().catch(function(){});
+ // Start the separate stem silently in the same user gesture, even
+ // before the combo begins. Avoid repeated play() calls during frames.
+ grooveMusic.play().catch(function(){});
+}
+function updateAdaptiveMusic(dt){
+ if(game.mode!=='play'||profile.muted)return;
+ const winning=game.fever>0;
+ const orders=game.orderCompleted;
+ const target=winning?.64:
+   (game.combo>=7?.39:game.combo>=3?.25:orders>=1?.14:(game.stage%6>=3?.045:.001));
+ const easing=1-Math.exp(-Math.max(0,dt)*3.0);
+ grooveGain+=(target-grooveGain)*easing;
+ grooveMusic.volume=clamp(grooveGain*.54,.001,.40);
+ music.volume=winning?.34:.37;
+ const now=performance.now();
+ if(now-lastMusicSync>1350&&music.readyState>=2&&grooveMusic.readyState>=2
+    &&!music.paused&&!grooveMusic.paused){
+   lastMusicSync=now;
+   const drift=Math.abs(music.currentTime-grooveMusic.currentTime);
+   // Match stems on position. Zero-based 32-bar loops share identical length.
+   if(drift>.12&&drift<55){
+    try{grooveMusic.currentTime=music.currentTime}catch(e){}
+   }
+ }
+ const mood=winning?'RAINBOW FEVER':
+    game.combo>=7?'FULL GROOVE':game.combo>=3?'GROOVE UP':orders>=1?'SWEET GROOVE':'SOFT GROOVE';
+ if(mood!==adaptiveMood){
+  adaptiveMood=mood;
+  if($('musicMood'))$('musicMood').textContent='♫ '+WORLD_SONGS[game.world]+' · '+mood;
+ }
 }
 function sound(name,pitch){
  if(profile.muted)return;
- if(!SFX[name])SFX[name]=new Audio(ASSET+'audio/'+name+'.wav');
- let play=SFX[name].cloneNode();
- play.volume=name==='bad'?.48:.45;
+ let file=name+'.wav',key=name;
+ if(name==='order'||name==='catch'||name==='win'){
+  key=WORLD_ID[game.world]+'_'+name;
+  file=key+'.mp3';
+ }
+ if(!SFX[key])SFX[key]=new Audio(ASSET+'audio/'+file);
+ let play=SFX[key].cloneNode();
+ play.volume=name==='order'?.66:name==='win'?.78:name==='catch'?.50:name==='bad'?.45:.42;
  if(pitch && pitch!==1)play.playbackRate=pitch;
  play.play().catch(function(){});
  play.addEventListener('ended',function(){play.src='';play=null},{once:true});
@@ -184,7 +235,7 @@ function hero(){
 }
 function renderMenu(){
  game.mode='menu';game.stage=currentStage();game.world=stageWorld(game.stage);
- game.aim=null;game.dragging=false;music.pause();getWorld(game.world);
+ game.aim=null;game.dragging=false;stopAllMusic();getWorld(game.world);
  const s=game.stage,ww=game.world;
  let html='<div class="panel" role="dialog" aria-label="Fruity Net menu">'+
  '<div class="eyebrow">A LITTLE SLICE OF JOY</div>'+
@@ -274,7 +325,7 @@ function renderResult(){
 function endLevel(won){
  if(game.mode!=='play')return;
  game.mode='result';game.won=!!won;game.justUnlocked=false;game.earnedXp=0;game.stars=0;
- music.pause();
+ stopAllMusic();
  if(won){
   game.stars=resultStars();
   const key=String(game.stage),old=Number(profile.stars[key]||0);
@@ -302,13 +353,14 @@ function startLevel(which){
  game.charge=0;game.fever=0;game.netLevel=1+Math.min(2,Math.floor(game.stage/10));
  game.fruits=[];game.nets=[];game.particles=[];game.labels=[];game.shake=0;game.tutorial=0;
  game.dragging=false;game.aim=null;game.musicWorld=-1;
+ adaptiveMood='INIT';
  startRecipe(0);
  for(let i=0;i<(game.stage<5?7:6);i++)spawnFruit(true);
  hideOverlay();updateHud(true);availableMusic();sound('tap',1.12);
 }
 function pause(){
  if(game.mode!=='play')return;
- game.mode='pause';music.pause();sound('tap');
+ game.mode='pause';stopAllMusic();sound('tap');
  showOverlay('<div class="panel" role="dialog" aria-label="Paused game"><div class="eyebrow">A LITTLE REST</div>'+
  '<h2 class="result-title">PAUSED ♡</h2>'+hero()+
  '<div class="tagline">Your fruit friends will be right here!</div>'+
@@ -344,7 +396,7 @@ $('pauseBtn').addEventListener('click',e=>{e.preventDefault();pause()});
 $('soundToggle').addEventListener('click',()=>{
  profile.muted=!profile.muted;save();
  $('soundToggle').textContent=profile.muted?'♫ OFF':'♫ ON';
- if(profile.muted)music.pause();
+ if(profile.muted)stopAllMusic();
  else if(game.mode==='play')availableMusic();
 });
 window.addEventListener('keydown',e=>{
@@ -640,7 +692,7 @@ function drawLassoPath(){
 }
 function drawFrame(timestamp){
  const dt=clamp((timestamp-lastTimestamp)/1000,0,.055);lastTimestamp=timestamp;
- tick(dt);
+ tick(dt);updateAdaptiveMusic(dt);
  ctx.setTransform(DPR,0,0,DPR,0,0);
  ctx.save();
  if(game.shake>0&&game.mode==='play')ctx.translate(rand(-4,4)*game.shake,rand(-4,4)*game.shake);
@@ -733,6 +785,16 @@ if(new URLSearchParams(location.search).get('qa')==='1'){
   win:()=>endLevel(true),
   choose:(i)=>{if(i<profile.unlocked){profile.selected=i;renderMenu()}},
   progress:()=>JSON.parse(JSON.stringify(profile)),
+  debugSeek:()=>{const before=[music.currentTime,grooveMusic.currentTime];let error='';try{music.currentTime=16;grooveMusic.currentTime=16}catch(e){error=String(e)}return{before,after:[music.currentTime,grooveMusic.currentTime],pending:game.musicOffsetPending,error,seekable:music.seekable.length,duration:music.duration}},
+  music:()=>({
+   baseSrc:music.currentSrc,grooveSrc:grooveMusic.currentSrc,
+   baseCurrent:music.currentTime,grooveCurrent:grooveMusic.currentTime,
+   basePlaying:!music.paused,groovePlaying:!grooveMusic.paused,
+   baseReady:music.readyState,grooveReady:grooveMusic.readyState,
+   grooveVolume:grooveMusic.volume,mood:adaptiveMood,world:game.world,
+   trackTitle:WORLD_SONGS[game.world],bpm:WORLD_BPM[game.world],
+   soundKeys:Object.keys(SFX).filter(k=>k.includes('_'))
+  }),
   maxLassoLength:()=>maxLassoLength(),
   polygonArea:(points)=>polygonArea(points),
   enclosed:(point,points)=>enclosed(point,points)

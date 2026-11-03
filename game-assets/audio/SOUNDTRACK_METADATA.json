@@ -1,0 +1,79 @@
+{
+  "version": "v4_interactive_world_score",
+  "source": "new compositions rendered from GeneralUser GS 2.0.3 samples; commercial-use license included in authored records",
+  "licensed_font_only_used_during_rendering": true,
+  "soundfont_redistributed": false,
+  "duration_bars": 32,
+  "worlds": [
+    {
+      "id": "mint",
+      "title": "Buttercup Bounce",
+      "bpm": 116,
+      "key": "D major",
+      "tonic": 62,
+      "lead": 10,
+      "pluck": 24,
+      "pad": 88,
+      "bass": 33,
+      "extra": 73,
+      "drums": "soft",
+      "swing": 0.016
+    },
+    {
+      "id": "citrus",
+      "title": "Lemonade Parade",
+      "bpm": 126,
+      "key": "A major",
+      "tonic": 69,
+      "lead": 114,
+      "pluck": 11,
+      "pad": 4,
+      "bass": 32,
+      "extra": 56,
+      "drums": "latin",
+      "swing": 0.024
+    },
+    {
+      "id": "candy",
+      "title": "Sugarcloud Pop",
+      "bpm": 132,
+      "key": "F major",
+      "tonic": 65,
+      "lead": 10,
+      "pluck": 12,
+      "pad": 89,
+      "bass": 38,
+      "extra": 80,
+      "drums": "bubble",
+      "swing": 0.009
+    },
+    {
+      "id": "sunset",
+      "title": "Peachy Sunset Groove",
+      "bpm": 121,
+      "key": "E major",
+      "tonic": 64,
+      "lead": 4,
+      "pluck": 26,
+      "pad": 48,
+      "bass": 33,
+      "extra": 11,
+      "drums": "funk",
+      "swing": 0.035
+    },
+    {
+      "id": "rainbow",
+      "title": "Rainbow Finale Rush",
+      "bpm": 144,
+      "key": "C major",
+      "tonic": 72,
+      "lead": 81,
+      "pluck": 98,
+      "pad": 48,
+      "bass": 38,
+      "extra": 56,
+      "drums": "festival",
+      "swing": 0.008
+    }
+  ]
+}
