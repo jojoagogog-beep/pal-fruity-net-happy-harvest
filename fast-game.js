@@ -20,7 +20,7 @@ const rand=(a,b)=>a+Math.random()*(b-a);
 const choose=a=>a[Math.floor(Math.random()*a.length)];
 const zero=n=>String(n).padStart(2,'0');
 const saveKey='fruity-net-happy-harvest-js-v1'; // Keep existing saved progress.
-const BALANCE_VERSION='2.0';
+const BALANCE_VERSION='3.0-LASSO-RECIPES';
 const RANKS=['GENTLE','WARM-UP','SKILL','TRICKY','EXPERT','MASTER'];
 function rankName(level){return RANKS[clamp(Math.floor(level/5),0,5)]}
 function netRadius(level){
@@ -32,6 +32,82 @@ function netRadius(level){
 }
 function holdBonus(ms){return clamp((ms-180)/630,0,1)}
 function accuracy(){return game.shots?Math.round(game.hitThrows/game.shots*100):100}
+
+function orderedItems(order){
+ return Object.entries(order).filter(([,count])=>count>0);
+}
+function recipeForLevel(level,round){
+ const pool=FRUITS.slice(0,Math.min(FRUITS.length,3+Math.floor(level/4)*2));
+ const count=level<6?2:level<16?2:3;
+ const order={};
+ for(let i=0;i<count;i++){
+  const name=pool[(level*3+round*(level<3?1:2)+i*2)%pool.length];
+  if(!order[name])order[name]=0;
+  order[name]+=i===0?2:1;
+ }
+ return order;
+}
+function totalOrders(level){return level<6?2:level<14?3:level<24?4:5}
+function maxLassoLength(){
+ return clamp(W*(game.stage<3?1.18:game.stage<12?1.0:.89),255,470);
+}
+function pathLength(points){
+ let sum=0;
+ for(let i=1;i<points.length;i++)sum+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
+ return sum;
+}
+function polygonArea(points){
+ let area=0;
+ for(let i=0;i<points.length;i++){
+  const a=points[i],b=points[(i+1)%points.length];
+  area+=a.x*b.y-b.x*a.y;
+ }
+ return Math.abs(area)*.5;
+}
+function enclosed(point,poly){
+ let inside=false;
+ for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+  const a=poly[i],b=poly[j];
+  if((a.y>point.y)!==(b.y>point.y)&&
+      point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+ }
+ return inside;
+}
+function orderSummary(){
+ const order=game.recipe;
+ return orderedItems(order).map(([name,count])=>name.toUpperCase()+' '+count).join('  ·  ');
+}
+function renderOrder(){
+ const count=game.orders.length,idx=Math.min(count,game.orderIndex+1);
+ $('orderCount').textContent='ORDER '+idx+' / '+count;
+ $('recipeItems').replaceChildren();
+ for(const [name,n] of Object.entries(game.recipe)){
+  const chip=document.createElement('div');chip.className='recipe-chip'+(!n?' done':'');
+  const img=document.createElement('img');img.src=ASSET+'fruits/'+name+'.png';img.alt=name;
+  const number=document.createElement('span');number.textContent=n?'×'+n:'✓';
+  chip.append(img,number);$('recipeItems').append(chip);
+ }
+}
+function startRecipe(index){
+ game.orderIndex=index;
+ game.recipe={...game.orders[index]};
+ renderOrder();
+}
+function completeRecipe(){
+ if(orderedItems(game.recipe).length)return;
+ game.orderCompleted++;
+ game.score+=400+game.orderIndex*100;
+ game.time=Math.min(game.round+10,game.time+4.5);
+ game.charge=Math.min(100,game.charge+18);
+ addLabel(W*.5,H*.39,'ORDER COMPLETE!','#e7a54d');
+ sound('combo',1.2);burst(W*.5,H*.40,'#fff19e',23);
+ if(game.orderIndex+1<game.orders.length)startRecipe(game.orderIndex+1);
+ else {
+  renderOrder();
+  endLevel(true);
+ }
+}
+
 
 function loadProgress(){
  try{
@@ -49,7 +125,8 @@ const game={
  lives:3,time:59,round:59,nextSpawn:0,cooldown:0,charge:0,fever:0,netLevel:1,
  fruits:[],nets:[],particles:[],labels:[],tutorial:0,aim:null,dragging:false,
  stars:0,won:false,justUnlocked:false,earnedXp:0,shake:0,musicWorld:-1,
- shots:0,hitThrows:0,misses:0,doubleCatches:0,boss:false,holdStarted:0,netPenalty:0
+ shots:0,hitThrows:0,misses:0,doubleCatches:0,boss:false,holdStarted:0,netPenalty:0,
+ orders:[],orderIndex:0,recipe:{},wrong:0,loopPath:[],orderCompleted:0,lassoRejected:0
 };
 function loadImage(path){
  if(IMAGES[path])return IMAGES[path];
@@ -112,7 +189,7 @@ function renderMenu(){
  let html='<div class="panel" role="dialog" aria-label="Fruity Net menu">'+
  '<div class="eyebrow">A LITTLE SLICE OF JOY</div>'+
  '<h1 class="title">FRUITY NET!</h1><div class="subtitle">Happy Harvest</div>'+
- '<div class="tagline">Throw your magical net, catch cute fruit friends & unlock five rainbow worlds!</div>'+
+ '<div class="tagline">Draw a magical net around the fruits in each order. Choose carefully to earn 3 stars!</div>'+
  hero()+
  '<div class="stagebox"><div class="eyebrow">WORLD '+(ww+1)+' / 5 · '+WORLD[ww]+'</div>'+
  '<div class="stage-title">LEVEL '+zero(s+1)+' / 30 · '+rankName(s)+'</div>'+
@@ -134,13 +211,12 @@ function renderHelp(){
  '<div class="eyebrow">QUICK TUTORIAL</div><h2 class="result-title">CATCH A LITTLE JOY!</h2>'+
  hero()+
  '<div class="mini-card" style="text-align:left;line-height:1.7;font-size:14px">'+
- '🎯 <b>TAP AHEAD</b> of a moving fruit. Your net takes time to arrive.<br>'+
- '🕸️ <b>HOLD, AIM & RELEASE</b> to charge a wider net (slower reload).<br>'+
- '🍓 Catch <b>3 fruits together</b> for a JUICY COMBO.<br>'+
- '🌈 Build your Rainbow meter for a BIG FEVER NET.<br>'+
- '✨ Catch golden fruit for bonus points. Avoid rotten fruit.<br>'+
- '⏱️ Later levels: missed nets cost time. Accuracy earns better stars.<br>'+
- '🏆 Meet the target before time runs out to unlock the next level!'+
+ '🕸️ <b>DRAW A LOOP</b> around the fruit and bring your finger back near the start.<br>'+
+ '🛒 <b>FILL THE ORDER CARD</b> shown at the top. Each order needs specific fruits.<br>'+
+ '✨ Choose carefully: wrong fruit wastes time, rotten fruit costs a heart.<br>'+
+ '📏 Bigger is not better! Very large nets cannot close.<br>'+
+ '🌈 Fill the rainbow meter for a bonus. Golden fruit counts as any needed fruit.<br>'+
+ '🏆 Complete all orders before time runs out to unlock the next level!'+
  '</div><button class="btn primary" data-action="play">LET’S CATCH FRUITS!</button>'+
  '<button class="btn white small" data-action="menu" style="width:100%;margin-top:12px">BACK TO MENU</button></div>');
 }
@@ -166,13 +242,11 @@ function renderMap(){
 }
 function resultStars(){
  // A large score from a single giant cluster no longer guarantees 3 stars.
- const base=game.goal*130;
  const a=accuracy();
- const threshold=game.stage<3?68:game.stage<10?73:78;
- if(a>=threshold && game.misses<=2 && game.time>=game.round*.25 &&
-    game.score>=base*1.45 && game.lives>=2)return 3;
- if(a>=Math.max(50,threshold-20) && game.lives>=1 &&
-    game.time>=game.round*.10)return 2;
+ const threshold=game.stage<6?65:game.stage<16?72:78;
+ if(a>=threshold&&game.wrong===0&&game.misses<=1&&
+    game.time>=game.round*.18&&game.lives>=2)return 3;
+ if(a>=Math.max(45,threshold-22)&&game.wrong<=2&&game.lives>=1)return 2;
  return 1;
 }
 function renderResult(){
@@ -188,7 +262,8 @@ function renderResult(){
  '<div class="stage-sub">'+(was?'GARDEN POINTS!':'SCORE · KEEP TRYING!')+'</div>'+
  '<div class="card-grid"><div class="mini-card"><small>FRUITS</small><strong>'+game.caught+' / '+game.goal+'</strong></div>'+
  '<div class="mini-card"><small>ACCURACY</small><strong>'+accuracy()+'%</strong></div></div>'+
- '<div class="stage-sub">BEST COMBO '+game.bestCombo+' · MISSED NETS '+game.misses+'</div>'+
+ '<div class="stage-sub">ORDERS '+game.orderCompleted+'/'+game.orders.length+
+ ' · BEST COMBO '+game.bestCombo+' · WRONG FRUIT '+game.wrong+'</div>'+
  '<div class="statusline">'+(was?(game.justUnlocked?'🔓 LEVEL '+zero(game.stage+2)+' UNLOCKED! ':'')+'+'+game.earnedXp+' GARDEN XP':'Catch more fruit in the time limit and try again!')+'</div>'+
  '<div class="button-row"><button class="btn primary" data-action="'+(was&&next?'nextlevel':'retry')+'">'+
  (was&&next?'▶ NEXT LEVEL':'↻ RETRY LEVEL')+'</button></div>'+
@@ -215,15 +290,20 @@ function endLevel(won){
 function startLevel(which){
  game.mode='play';game.stage=clamp(which,0,profile.unlocked-1);profile.selected=game.stage;save();
  game.world=stageWorld(game.stage);getWorld(game.world);
- game.score=0;game.caught=0;game.goal=goalFor(game.stage);
- game.combo=0;game.bestCombo=0;game.lives=3;
- game.shots=0;game.hitThrows=0;game.misses=0;game.doubleCatches=0;
+ game.score=0;game.caught=0;game.combo=0;game.bestCombo=0;game.lives=3;
+ game.shots=0;game.hitThrows=0;game.misses=0;game.doubleCatches=0;game.wrong=0;
+ game.orderCompleted=0;game.lassoRejected=0;game.loopPath=[];
  game.boss=game.stage%6===5;
- game.time=roundFor(game.stage)+(game.boss?6:0);game.round=game.time;game.nextSpawn=.5;game.cooldown=0;
+ game.orders=Array.from({length:totalOrders(game.stage)},(_,i)=>recipeForLevel(game.stage,i));
+ game.goal=game.orders.reduce((sum,order)=>sum+Object.values(order).reduce((a,b)=>a+b,0),0);
+ game.time=game.stage<6?76:game.stage<16?87:game.stage<24?96:110;
+ game.round=game.time+(game.boss?8:0);game.time=game.round;
+ game.nextSpawn=.5;game.cooldown=0;
  game.charge=0;game.fever=0;game.netLevel=1+Math.min(2,Math.floor(game.stage/10));
  game.fruits=[];game.nets=[];game.particles=[];game.labels=[];game.shake=0;game.tutorial=0;
  game.dragging=false;game.aim=null;game.musicWorld=-1;
- for(let i=0;i<(game.stage<5?6:5);i++)spawnFruit(true);
+ startRecipe(0);
+ for(let i=0;i<(game.stage<5?7:6);i++)spawnFruit(true);
  hideOverlay();updateHud(true);availableMusic();sound('tap',1.12);
 }
 function pause(){
@@ -283,12 +363,16 @@ function spawnFruit(begin,around){
  let name;
  if(roll<(level<3?0:.036+tier*.012))name='rotten';
  else if(roll>.980-tier*.002)name='golden';
- else name=FRUITS[Math.floor(Math.random()*Math.min(FRUITS.length,7+tier*2))];
+ else {
+  const needed=orderedItems(game.recipe);
+  const stock=FRUITS.slice(0,Math.min(FRUITS.length,4+tier*3));
+  name=needed.length&&Math.random()<.66?choose(needed)[0]:choose(stock);
+ }
  const size=Math.max(63,Math.min(104,W*.206))*rand(.80,1.09)*
   (name==='watermelon'||name==='golden'?1.13:1);
- const minY=136,maxY=Math.max(205,H-154);
+ const minY=212,maxY=Math.max(minY+35,H-150);
  const side=Math.random()<.5?-1:1;
- const gap=level<3?43:level<8?76:level<17?104:122;
+ const gap=level<3?78:level<8?93:level<17?108:122;
  let x=around?around.x+rand(-gap,gap):(begin?rand(size/2,W-size/2):(side<0?-size/2:W+size/2));
  let y=around?around.y+rand(-gap*.78,gap*.78):rand(minY+18,maxY-20);
  x=clamp(x,-size/2,W+size/2);y=clamp(y,minY,maxY);
@@ -326,57 +410,123 @@ function burst(x,y,color,count){
 }
 function catchFruit(f){
  if(f.name==='rotten'){
-  game.lives=Math.max(0,game.lives-1);game.combo=0;game.charge=Math.max(0,game.charge-18);
-  game.score=Math.max(0,game.score-100);
+  game.lives=Math.max(0,game.lives-1);game.combo=0;
+  game.charge=Math.max(0,game.charge-15);
+  game.score=Math.max(0,game.score-150);game.wrong++;
   addLabel(f.x,f.y-18,'OOPS! −1 ♥','#e05a7c');sound('bad');
-  burst(f.x,f.y,'#a38d8a',18);game.shake=.5;return false;
+  burst(f.x,f.y,'#a38d8a',14);game.shake=.4;return false;
  }
+ const wildcard=f.name==='golden';
+ let key=f.name;
+ if(wildcard){
+  const remaining=orderedItems(game.recipe);
+  if(remaining.length)key=remaining[0][0];
+ }
+ if(!game.recipe[key]){
+  game.wrong++;game.combo=0;
+  const penalty=game.stage<3?1.5:2.4;
+  game.time=Math.max(0,game.time-penalty);
+  addLabel(f.x,f.y-18,'NOT IN ORDER! −'+penalty+'s','#dd638a');
+  burst(f.x,f.y,'#cbd4dc',6);sound('bad',1.2);return false;
+ }
+ game.recipe[key]--;
  const multiplier=1+Math.min(4,Math.floor(game.combo/5))+(game.fever>0?2:0);
  const points=(VALUES[f.name]||100)*multiplier;
  game.score+=points;game.combo++;game.bestCombo=Math.max(game.bestCombo,game.combo);
- game.caught++;game.charge=Math.min(100,game.charge+(f.name==='golden'?20:6));
- const gold=f.name==='golden';
- addLabel(f.x,f.y-20,gold?'GOLDEN +'+points:'+'+points,gold?'#ce9f37':'#d8649d');
- burst(f.x,f.y,gold?'#ffe48a':'#ffadd1',gold?22:10);
- sound(gold?'rare':'catch',rand(.92,1.12));
- if(game.charge>=100&&game.fever<=0){game.fever=8.5;game.charge=100;addLabel(W*.5,H*.4,'🌈 RAINBOW FEVER!','#cb68ad');sound('combo')}
+ game.caught++;game.charge=Math.min(100,game.charge+(wildcard?20:7));
+ addLabel(f.x,f.y-20,wildcard?'GOLDEN +'+points:'+'+points,wildcard?'#d4a13f':'#d8649d');
+ burst(f.x,f.y,wildcard?'#ffe48a':'#ffadd1',wildcard?19:10);
+ sound(wildcard?'rare':'catch',rand(.94,1.07));
+ if(game.charge>=100&&game.fever<=0){
+  game.fever=8.5;game.charge=100;
+  addLabel(W*.5,H*.40,'🌈 RAINBOW FEVER!','#cb68ad');sound('combo');
+ }
  return true;
 }
-function launchNet(x,y,heldMs=0){
- if(game.mode!=='play'||game.cooldown>0||game.nets.length>=3)return false;
- const target={x:clamp(x,44,W-44),y:clamp(y,134,H-138)};
- const origin={x:W*.5,y:H-88};
- const charged=holdBonus(heldMs);
- const rad=netRadius(game.stage)*(1+charged*.24)+(game.fever>0?36:0);
- const dist=Math.hypot(target.x-origin.x,target.y-origin.y);
- game.nets.push({from:origin,to:target,age:0,travel:clamp(dist/1050,.22,.49),
-   r:rad,hits:0,awarded:false,charged});
+function finishLoop(points){
+ if(game.mode!=='play'||game.cooldown>0)return false;
+ const first=points[0],last=points[points.length-1];
+ if(!first||!last)return false;
+ const length=pathLength(points),area=polygonArea(points);
+ const closure=Math.hypot(first.x-last.x,first.y-last.y);
+ if(points.length<8||length<100||area<1050||closure>Math.max(37,W*.13)){
+  game.lassoRejected++;
+  addLabel(last.x,last.y,'CLOSE THE LOOP!','#dc72a6');sound('bad',1.45);return false;
+ }
+ const maxLen=maxLassoLength(),allowedArea=Math.min(27500,maxLen*maxLen/(4*Math.PI)*.95);
+ if(length>maxLen||area>allowedArea){
+  game.lassoRejected++;game.cooldown=.15;
+  addLabel(last.x,last.y,'NET TOO BIG!','#dd6c91');sound('bad',1.05);return false;
+ }
  game.shots++;
- game.cooldown=(game.fever>0?.21:.38)+charged*.30;
- sound('throw',rand(.94,1.07));
+ const closed=[...points,{...first}];
+ const bounds={xmin:Math.min(...points.map(p=>p.x)),xmax:Math.max(...points.map(p=>p.x)),
+               ymin:Math.min(...points.map(p=>p.y)),ymax:Math.max(...points.map(p=>p.y))};
+ game.nets.push({path:closed,age:0,life:.50,hitCount:0});
+ game.cooldown=game.fever>0?.12:.23;
+ let hit=0,raw=0;
+ for(let i=game.fruits.length-1;i>=0;i--){
+  const fruit=game.fruits[i];
+  if(fruit.x<bounds.xmin||fruit.x>bounds.xmax||fruit.y<bounds.ymin||fruit.y>bounds.ymax)continue;
+  if(enclosed(fruit,points)){
+   const good=catchFruit(fruit);
+   if(good)hit++;
+   raw++;
+   game.fruits.splice(i,1);
+  }
+ }
+ if(raw)game.hitThrows++;
+ if(hit>=2){
+  game.doubleCatches++;game.score+=hit*65;
+  addLabel((bounds.xmin+bounds.xmax)*.5,(bounds.ymin+bounds.ymax)*.5,'JUICY ×'+hit+'!','#a772da');
+  sound('combo');game.shake=.22;
+ }
+ if(raw===0){
+  game.combo=0;game.misses++;
+  const penalty=game.stage<3?0:game.stage<10?1.1:1.7;
+  game.time=Math.max(0,game.time-penalty);
+  addLabel(last.x,last.y,penalty?'EMPTY NET −'+penalty+'s':'EMPTY NET!','#a67d9d');
+ }else{
+  renderOrder();
+  if(orderedItems(game.recipe).length===0)completeRecipe();
+ }
+ sound('throw',rand(.98,1.04));
  return true;
 }
 function pointerAt(e){
  const r=canvas.getBoundingClientRect();
  return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};
 }
+function addLoopPoint(point){
+ const y=clamp(point.y,196,H-123);
+ const p={x:clamp(point.x,12,W-12),y};
+ const path=game.loopPath,last=path[path.length-1];
+ if(!last||Math.hypot(p.x-last.x,p.y-last.y)>5)path.push(p);
+}
 canvas.addEventListener('pointerdown',e=>{
  if(game.mode!=='play')return;
  e.preventDefault();
- game.dragging=true;game.aim=pointerAt(e);game.holdStarted=performance.now();
+ if(game.cooldown>0)return;
+ game.dragging=true;game.loopPath=[];
+ addLoopPoint(pointerAt(e));
  try{canvas.setPointerCapture(e.pointerId)}catch(err){}
 });
 canvas.addEventListener('pointermove',e=>{
- if(game.mode==='play'&&game.dragging){game.aim=pointerAt(e);e.preventDefault()}
+ if(game.mode==='play'&&game.dragging){
+  addLoopPoint(pointerAt(e));e.preventDefault();
+ }
 });
 canvas.addEventListener('pointerup',e=>{
  if(game.mode!=='play'||!game.dragging)return;
  e.preventDefault();
- const target=pointerAt(e);const heldMs=performance.now()-game.holdStarted;
- game.dragging=false;game.aim=null;
- launchNet(target.x,target.y,heldMs);
+ addLoopPoint(pointerAt(e));
+ const points=game.loopPath.slice();
+ game.dragging=false;game.loopPath=[];
+ finishLoop(points);
 });
-canvas.addEventListener('pointercancel',()=>{game.dragging=false;game.aim=null});
+canvas.addEventListener('pointercancel',()=>{
+ game.dragging=false;game.loopPath=[];
+});
 function updateHud(force){
  if(!force&&performance.now()-hudAt<90)return;
  hudAt=performance.now();
@@ -388,7 +538,7 @@ function updateHud(force){
  $('barFill').style.width=(clamp(game.caught/game.goal,0,1)*100)+'%';
  $('combo').textContent='COMBO '+game.combo+'  ·  x'+(1+Math.min(4,Math.floor(game.combo/5)));
  $('netStatus').textContent=game.cooldown>.10?'NET RELOADING…':
-    'HOLD FOR WIDER NET · '+rankName(game.stage);
+    'DRAW & CLOSE A LOOP · '+rankName(game.stage);
  $('life').textContent='♥'.repeat(game.lives)+'♡'.repeat(3-game.lives);
  $('feverMeter').textContent=game.fever>0?'🌈 RAINBOW FEVER!':'RAINBOW '+Math.floor(game.charge)+'%';
 }
@@ -404,7 +554,7 @@ function tick(dt){
   // not being forced to wait for spawns.
   game.nextSpawn=rand(1.08,1.54)/(1+Math.min(0.28,game.stage*.012));
  }
- const playMin=137,playMax=H-139;
+ const playMin=209,playMax=Math.max(238,H-145);
  for(let i=game.fruits.length-1;i>=0;i--){
   const f=game.fruits[i];f.age+=dt;f.x+=f.vx*dt;
   const sway=f.movement==='zigzag'?85:f.movement==='swoop'?66:12;
@@ -420,44 +570,16 @@ function tick(dt){
   if(f.y>playMax){f.y=playMax;f.vy=-Math.abs(f.vy)-3}
   if(f.age>(game.stage<6?14:11.2))game.fruits.splice(i,1);
  }
- for(let i=game.nets.length-1;i>=0;i--){
-  const n=game.nets[i];n.age+=dt;
-  if(n.age>=n.travel && n.age<=n.travel+.29){
-   const radius=n.r*clamp((n.age-n.travel)/.17,.09,1);
-   const hitsBefore=n.hits;
-   for(let j=game.fruits.length-1;j>=0;j--){
-    const f=game.fruits[j];
-    if(Math.hypot(f.x-n.to.x,f.y-n.to.y)<radius-f.size*.105){
-     const good=catchFruit(f);if(good)n.hits++;
-     game.fruits.splice(j,1);
-    }
-   }
-   if(hitsBefore===0&&n.hits>0)game.hitThrows++;
-   if(!n.awarded&&n.age>n.travel+.30){
-    n.awarded=true;
-    if(n.hits>=2)game.doubleCatches++;
-    if(n.hits>=3){
-     game.score+=n.hits*75;addLabel(n.to.x,n.to.y-40,'JUICY x'+n.hits+'!','#b471d6');
-     sound('combo');game.shake=.32;
-    }else if(n.hits===2){addLabel(n.to.x,n.to.y-35,'DOUBLE CATCH!','#ee81a7')}
-   }
-  }
-  if(n.age>n.travel+.57){
-   if(n.hits===0){
-    game.combo=0;game.misses++;
-    const penalty=game.stage<3?0:game.stage<10?1.15:1.8;
-    game.time=Math.max(0,game.time-penalty);
-    addLabel(n.to.x,n.to.y,penalty?'MISSED! −'+penalty+'s':'SO CLOSE!','#a67d9d');
-   }
-   game.nets.splice(i,1);
-  }
+for(let i=game.nets.length-1;i>=0;i--){
+  game.nets[i].age+=dt;
+  if(game.nets[i].age>game.nets[i].life)game.nets.splice(i,1);
  }
  for(let i=game.particles.length-1;i>=0;i--){
   const p=game.particles[i];p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=200*dt;
   if(p.age>=p.life)game.particles.splice(i,1);
  }
  updateHud();
- if(game.caught>=game.goal)endLevel(true);
+ if(game.orderCompleted>=game.orders.length)endLevel(true);
  else if(game.time<=0||game.lives<=0)endLevel(false);
 }
 function drawCover(img){
@@ -482,31 +604,38 @@ function drawSprite(name,x,y,size,angle){
  }
 }
 function drawNet(n){
- const tt=clamp(n.age/n.travel,0,1),t=tt*tt*(3-2*tt);
- const x=n.from.x+(n.to.x-n.from.x)*t,y=n.from.y+(n.to.y-n.from.y)*t;
- const open=clamp((n.age-n.travel)/.19,0,1),fade=clamp((n.travel+.57-n.age)/.19,0,1);
- const r=n.age>=n.travel?14+(n.r-14)*open:12+tt*18;
- ctx.save();ctx.lineCap='round';
- ctx.strokeStyle='rgba(91,160,153,'+(.55*fade)+')';ctx.lineWidth=4;
- ctx.beginPath();ctx.moveTo(n.from.x,n.from.y);ctx.quadraticCurveTo((n.from.x+x)/2-22,(n.from.y+y)/2-30,x,y);ctx.stroke();
- ctx.strokeStyle='rgba(255,255,255,'+(.9*fade)+')';ctx.lineWidth=2;
- ctx.beginPath();ctx.moveTo(n.from.x,n.from.y);ctx.quadraticCurveTo((n.from.x+x)/2-20,(n.from.y+y)/2-32,x,y);ctx.stroke();
- ctx.shadowColor='rgba(255,255,255,.75)';ctx.shadowBlur=15;
- ctx.fillStyle='rgba(181,255,235,'+(.19*fade)+')';ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
- ctx.save();ctx.beginPath();ctx.arc(x,y,Math.max(0,r-5),0,Math.PI*2);ctx.clip();
- ctx.shadowBlur=0;ctx.lineWidth=1.7;
- for(let k=-5;k<=5;k++){
-  const off=k*r/5;
-  ctx.strokeStyle='rgba(255,255,255,'+(.58*fade)+')';
-  ctx.beginPath();ctx.moveTo(x-r,y+off);ctx.lineTo(x+r,y+off);ctx.stroke();
-  ctx.strokeStyle='rgba(102,200,183,'+(.50*fade)+')';
-  ctx.beginPath();ctx.moveTo(x+off,y-r);ctx.lineTo(x+off,y+r);ctx.stroke();
- }
- ctx.restore();
- ctx.lineWidth=5;ctx.strokeStyle='rgba(255,255,255,'+(.95*fade)+')';
- ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();
- ctx.lineWidth=3;ctx.strokeStyle='rgba(79,204,165,'+(.9*fade)+')';
- ctx.beginPath();ctx.arc(x,y,r-4,0,Math.PI*2);ctx.stroke();
+ const fade=clamp(1-n.age/n.life,0,1),path=n.path;
+ if(!path||path.length<4)return;
+ const mid=path.reduce((sum,p)=>({x:sum.x+p.x/(path.length),y:sum.y+p.y/(path.length)}),{x:0,y:0});
+ const factor=1-.11*Math.sin(clamp(n.age/n.life,0,1)*Math.PI);
+ const poly=path.map(p=>({x:mid.x+(p.x-mid.x)*factor,y:mid.y+(p.y-mid.y)*factor}));
+ ctx.save();ctx.beginPath();ctx.moveTo(poly[0].x,poly[0].y);
+ for(let i=1;i<poly.length;i++)ctx.lineTo(poly[i].x,poly[i].y);
+ ctx.closePath();
+ ctx.fillStyle='rgba(190,255,230,'+(.32*fade)+')';ctx.fill();
+ ctx.save();ctx.clip();
+ ctx.strokeStyle='rgba(75,183,164,'+(.48*fade)+')';ctx.lineWidth=1.2;
+ let minX=Math.min(...poly.map(p=>p.x)),maxX=Math.max(...poly.map(p=>p.x));
+ let minY=Math.min(...poly.map(p=>p.y)),maxY=Math.max(...poly.map(p=>p.y));
+ for(let x=minX;x<maxX+13;x+=14){ctx.beginPath();ctx.moveTo(x,minY);ctx.lineTo(x,maxY);ctx.stroke()}
+ for(let y=minY;y<maxY+13;y+=14){ctx.beginPath();ctx.moveTo(minX,y);ctx.lineTo(maxX,y);ctx.stroke()}
+ ctx.restore();ctx.strokeStyle='rgba(255,255,255,'+fade+')';ctx.lineWidth=5;ctx.stroke();
+ ctx.strokeStyle='rgba(72,191,159,'+fade+')';ctx.lineWidth=2;ctx.stroke();ctx.restore();
+}
+function drawLassoPath(){
+ const path=game.loopPath;if(path.length<2)return;
+ const length=pathLength(path),budget=maxLassoLength(),progress=length/budget;
+ const first=path[0],last=path[path.length-1];
+ const close=Math.hypot(first.x-last.x,first.y-last.y)<Math.max(37,W*.13);
+ ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+ ctx.strokeStyle=progress>1?'#f77a89':close?'#74e5a6':'rgba(255,255,255,.95)';
+ ctx.lineWidth=7;ctx.shadowColor='#60e8bc';ctx.shadowBlur=14;
+ ctx.beginPath();ctx.moveTo(first.x,first.y);
+ for(let i=1;i<path.length;i++)ctx.lineTo(path[i].x,path[i].y);
+ ctx.stroke();ctx.shadowBlur=0;
+ ctx.strokeStyle=close?'#63cf9c':'#fff';ctx.lineWidth=2.5;ctx.setLineDash([5,5]);
+ ctx.beginPath();ctx.arc(first.x,first.y,14,0,Math.PI*2);ctx.stroke();
+ ctx.fillStyle=close?'#9effc5':'#fff9e7';ctx.beginPath();ctx.arc(first.x,first.y,6,0,Math.PI*2);ctx.fill();
  ctx.restore();
 }
 function drawFrame(timestamp){
@@ -532,14 +661,7 @@ function drawFrame(timestamp){
    }
   }
   for(const n of game.nets)drawNet(n);
-  if(game.dragging&&game.aim){
-   const x=clamp(game.aim.x,44,W-44),y=clamp(game.aim.y,133,H-139);
-   const heldMs=performance.now()-game.holdStarted;
-   const radius=netRadius(game.stage)*(1+.24*holdBonus(heldMs))+(game.fever>0?36:0);
-   ctx.save();ctx.setLineDash([10,7]);ctx.lineWidth=3;ctx.strokeStyle='rgba(255,255,255,.91)';
-   ctx.beginPath();ctx.moveTo(W*.5,H-89);ctx.lineTo(x,y);ctx.stroke();
-   ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.stroke();ctx.restore();
-  }
+if(game.dragging)drawLassoPath();
   drawSprite('mascot',W*.5,H-92,clamp(W*.27,83,123),0);
   for(const p of game.particles){
    const a=clamp(1-p.age/p.life,0,1);ctx.globalAlpha=a;ctx.fillStyle=p.color;
@@ -552,9 +674,9 @@ function drawFrame(timestamp){
    ctx.fillStyle='rgba(255,255,255,.78)';
    ctx.beginPath();ctx.roundRect(boxX,y-34,boxW,73,17);ctx.fill();
    ctx.textAlign='center';ctx.fillStyle='#dc649a';ctx.font='bold 16px system-ui';
-   ctx.fillText('AIM AHEAD OF MOVING FRUITS!',W*.5,y-5);
+   ctx.fillText('DRAW A LOOP AROUND ORDER FRUITS!',W*.5,y-5);
    ctx.fillStyle='#6e9aa4';ctx.font='bold 12px system-ui';
-   ctx.fillText('Hold to widen your net · Misses cost time later!',W*.5,y+18);
+   ctx.fillText('Return near the start to close the net!',W*.5,y+18);
   }
  }else{
   const shapes=['strawberry','orange','grape','apple','lemon','peach'];
@@ -579,29 +701,41 @@ function launch(){
 }
 if(new URLSearchParams(location.search).get('qa')==='1'){
  window.FruityQA={
-  snapshot:()=>({mode:game.mode,stage:game.stage,world:game.world,unlocked:profile.unlocked,
-    caught:game.caught,goal:game.goal,score:game.score,combo:game.combo,lives:game.lives,
-    netCount:game.nets.length,fruitCount:game.fruits.length,fever:game.fever,
-    stars:totalStars(),radius:netRadius(game.stage),shots:game.shots,
-    hitThrows:game.hitThrows,misses:game.misses,accuracy:accuracy(),
-    rank:rankName(game.stage),moving:game.fruits.map(f=>f.movement),
-    nets:game.nets.map(n=>({radius:Math.round(n.r),charged:n.charged})),
-    cooldown:Math.round(game.cooldown*100)/100,remaining:game.time}),
+  snapshot:()=>({
+   mode:game.mode,stage:game.stage,world:game.world,unlocked:profile.unlocked,
+   caught:game.caught,goal:game.goal,score:game.score,combo:game.combo,lives:game.lives,
+   netCount:game.nets.length,fruitCount:game.fruits.length,fever:game.fever,
+   stars:totalStars(),shots:game.shots,hitThrows:game.hitThrows,misses:game.misses,
+   accuracy:accuracy(),wrong:game.wrong,completed:game.orderCompleted,orders:game.orders.length,
+   recipe:{...game.recipe},lassoRejected:game.lassoRejected,remaining:game.time
+  }),
   start:(i)=>startLevel(i),
   unlockForTest:(i)=>{profile.unlocked=Math.max(profile.unlocked,clamp(i+1,1,30));startLevel(i);},
-  net:(x,y,heldMs=0)=>launchNet(x,y,heldMs),
-  forceCluster:()=>{
+  resetProgress:()=>{profile.unlocked=1;profile.selected=0;profile.stars={};profile.best={};profile.xp=0;save();},
+  loop:(points)=>finishLoop(points),
+  forceCluster:(names)=>{
    game.fruits=[];
-   for(let i=0;i<3;i++){
-    const f=spawnFruit(true);f.name='strawberry';f.x=W*.5+(i-1)*28;f.y=H*.39;f.vx=0;f.vy=0;
+   const required=names||Object.keys(game.recipe).flatMap(n=>Array(game.recipe[n]).fill(n));
+   const center={x:W*.5,y:Math.max(247,H*.42)};
+   for(let i=0;i<required.length;i++){
+    const f=spawnFruit(true);f.name=required[i];f.x=center.x+(i-(required.length-1)/2)*19;
+    f.y=center.y+(i%2)*13;f.vx=0;f.vy=0;f.age=0;
    }
-   game.cooldown=0;return game.fruits.map(f=>({x:f.x,y:f.y}));
+   game.cooldown=0;return game.fruits.map(f=>({x:f.x,y:f.y,name:f.name}));
   },
-  tick:(seconds)=>tick(seconds),
+  circle:(cx,cy,r=62)=>{
+   const points=[];
+   for(let i=0;i<=32;i++){let a=i*Math.PI/16;points.push({x:cx+Math.cos(a)*r,y:cy+Math.sin(a)*r})}
+   game.cooldown=0;return finishLoop(points);
+  },
+  tick:(dt)=>tick(dt),
   fail:()=>endLevel(false),
   win:()=>endLevel(true),
   choose:(i)=>{if(i<profile.unlocked){profile.selected=i;renderMenu()}},
-  progress:()=>JSON.parse(JSON.stringify(profile))
+  progress:()=>JSON.parse(JSON.stringify(profile)),
+  maxLassoLength:()=>maxLassoLength(),
+  polygonArea:(points)=>polygonArea(points),
+  enclosed:(point,points)=>enclosed(point,points)
  };
 }
 window.addEventListener('offline',()=>{$('offline').style.display='block'});
