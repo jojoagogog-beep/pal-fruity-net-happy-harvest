@@ -157,7 +157,7 @@ function availableMusic(){
   const id=WORLD_ID[world];
   for(const [player,file] of [
     [music,id+'.mp3'],[grooveMusic,id+'_groove.mp3']]){
-   player.src=ASSET+'audio/'+file;
+   player.src=ASSET+'audio/'+file+'?v=adaptive-music-v4';
   }
   game.musicWorld=world;grooveGain=.001;lastMusicSync=0;
  }
@@ -200,7 +200,7 @@ function sound(name,pitch){
   key=WORLD_ID[game.world]+'_'+name;
   file=key+'.mp3';
  }
- if(!SFX[key])SFX[key]=new Audio(ASSET+'audio/'+file);
+ if(!SFX[key])SFX[key]=new Audio(ASSET+'audio/'+file+'?v=adaptive-music-v4');
  let play=SFX[key].cloneNode();
  play.volume=name==='order'?.66:name==='win'?.78:name==='catch'?.50:name==='bad'?.45:.42;
  if(pitch && pitch!==1)play.playbackRate=pitch;
