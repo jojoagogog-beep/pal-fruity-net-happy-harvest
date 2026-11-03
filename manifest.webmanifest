@@ -1,0 +1,23 @@
+{
+  "name": "FRUITY NET! Happy Harvest",
+  "short_name": "Fruity Net!",
+  "description": "A cute fruit-catching arcade adventure with 30 sweet levels.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#c5f1e9",
+  "theme_color": "#ff9fc2",
+  "icons": [
+    {
+      "src": "index.icon.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "index.apple-touch-icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
