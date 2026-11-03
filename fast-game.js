@@ -19,7 +19,20 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const rand=(a,b)=>a+Math.random()*(b-a);
 const choose=a=>a[Math.floor(Math.random()*a.length)];
 const zero=n=>String(n).padStart(2,'0');
-const saveKey='fruity-net-happy-harvest-js-v1';
+const saveKey='fruity-net-happy-harvest-js-v1'; // Keep existing saved progress.
+const BALANCE_VERSION='2.0';
+const RANKS=['GENTLE','WARM-UP','SKILL','TRICKY','EXPERT','MASTER'];
+function rankName(level){return RANKS[clamp(Math.floor(level/5),0,5)]}
+function netRadius(level){
+ // Levels 1-3: generous first catches. Later: precise net throws.
+ // Tap versus hold is a genuine risk/reward choice.
+ const base=clamp(W*(level<3?.235:level<9?.195:.166),level<9?66:55,level<3?106:level<9?88:73);
+ const taper=clamp(level-5,0,24)*.79;
+ return clamp(base-taper+(game.netLevel-1)*4,52,110);
+}
+function holdBonus(ms){return clamp((ms-180)/630,0,1)}
+function accuracy(){return game.shots?Math.round(game.hitThrows/game.shots*100):100}
+
 function loadProgress(){
  try{
   const x=JSON.parse(localStorage.getItem(saveKey)||'null')||{};
@@ -35,7 +48,8 @@ const game={
  mode:'menu',stage:0,world:0,score:0,caught:0,goal:14,combo:0,bestCombo:0,
  lives:3,time:59,round:59,nextSpawn:0,cooldown:0,charge:0,fever:0,netLevel:1,
  fruits:[],nets:[],particles:[],labels:[],tutorial:0,aim:null,dragging:false,
- stars:0,won:false,justUnlocked:false,earnedXp:0,shake:0,musicWorld:-1
+ stars:0,won:false,justUnlocked:false,earnedXp:0,shake:0,musicWorld:-1,
+ shots:0,hitThrows:0,misses:0,doubleCatches:0,boss:false,holdStarted:0,netPenalty:0
 };
 function loadImage(path){
  if(IMAGES[path])return IMAGES[path];
@@ -101,7 +115,7 @@ function renderMenu(){
  '<div class="tagline">Throw your magical net, catch cute fruit friends & unlock five rainbow worlds!</div>'+
  hero()+
  '<div class="stagebox"><div class="eyebrow">WORLD '+(ww+1)+' / 5 · '+WORLD[ww]+'</div>'+
- '<div class="stage-title">LEVEL '+zero(s+1)+' / 30</div>'+
+ '<div class="stage-title">LEVEL '+zero(s+1)+' / 30 · '+rankName(s)+'</div>'+
  '<div class="stage-sub">'+profile.unlocked+' LEVELS UNLOCKED · '+totalStars()+' / 90 STARS · '+profile.xp+' XP</div>'+
  '<div class="button-row">'+
  '<button class="btn lav small" data-action="prev" aria-label="Previous level">◀</button>'+
@@ -120,11 +134,12 @@ function renderHelp(){
  '<div class="eyebrow">QUICK TUTORIAL</div><h2 class="result-title">CATCH A LITTLE JOY!</h2>'+
  hero()+
  '<div class="mini-card" style="text-align:left;line-height:1.7;font-size:14px">'+
- '🎯 <b>TAP</b> where the cute fruit is going.<br>'+
- '🕸️ <b>DRAG & RELEASE</b> to aim your magical expanding net.<br>'+
+ '🎯 <b>TAP AHEAD</b> of a moving fruit. Your net takes time to arrive.<br>'+
+ '🕸️ <b>HOLD, AIM & RELEASE</b> to charge a wider net (slower reload).<br>'+
  '🍓 Catch <b>3 fruits together</b> for a JUICY COMBO.<br>'+
  '🌈 Build your Rainbow meter for a BIG FEVER NET.<br>'+
  '✨ Catch golden fruit for bonus points. Avoid rotten fruit.<br>'+
+ '⏱️ Later levels: missed nets cost time. Accuracy earns better stars.<br>'+
  '🏆 Meet the target before time runs out to unlock the next level!'+
  '</div><button class="btn primary" data-action="play">LET’S CATCH FRUITS!</button>'+
  '<button class="btn white small" data-action="menu" style="width:100%;margin-top:12px">BACK TO MENU</button></div>');
@@ -150,9 +165,14 @@ function renderMap(){
  showOverlay(html);
 }
 function resultStars(){
+ // A large score from a single giant cluster no longer guarantees 3 stars.
  const base=game.goal*130;
- if(game.score>=base*2&&game.lives>=2)return 3;
- if(game.score>=base*1.2||game.lives===3)return 2;
+ const a=accuracy();
+ const threshold=game.stage<3?68:game.stage<10?73:78;
+ if(a>=threshold && game.misses<=2 && game.time>=game.round*.25 &&
+    game.score>=base*1.45 && game.lives>=2)return 3;
+ if(a>=Math.max(50,threshold-20) && game.lives>=1 &&
+    game.time>=game.round*.10)return 2;
  return 1;
 }
 function renderResult(){
@@ -167,7 +187,8 @@ function renderResult(){
  '<div class="result-score">'+game.score.toLocaleString()+'</div>'+
  '<div class="stage-sub">'+(was?'GARDEN POINTS!':'SCORE · KEEP TRYING!')+'</div>'+
  '<div class="card-grid"><div class="mini-card"><small>FRUITS</small><strong>'+game.caught+' / '+game.goal+'</strong></div>'+
- '<div class="mini-card"><small>BEST COMBO</small><strong>'+game.bestCombo+'</strong></div></div>'+
+ '<div class="mini-card"><small>ACCURACY</small><strong>'+accuracy()+'%</strong></div></div>'+
+ '<div class="stage-sub">BEST COMBO '+game.bestCombo+' · MISSED NETS '+game.misses+'</div>'+
  '<div class="statusline">'+(was?(game.justUnlocked?'🔓 LEVEL '+zero(game.stage+2)+' UNLOCKED! ':'')+'+'+game.earnedXp+' GARDEN XP':'Catch more fruit in the time limit and try again!')+'</div>'+
  '<div class="button-row"><button class="btn primary" data-action="'+(was&&next?'nextlevel':'retry')+'">'+
  (was&&next?'▶ NEXT LEVEL':'↻ RETRY LEVEL')+'</button></div>'+
@@ -196,11 +217,13 @@ function startLevel(which){
  game.world=stageWorld(game.stage);getWorld(game.world);
  game.score=0;game.caught=0;game.goal=goalFor(game.stage);
  game.combo=0;game.bestCombo=0;game.lives=3;
- game.time=roundFor(game.stage);game.round=game.time;game.nextSpawn=.5;game.cooldown=0;
+ game.shots=0;game.hitThrows=0;game.misses=0;game.doubleCatches=0;
+ game.boss=game.stage%6===5;
+ game.time=roundFor(game.stage)+(game.boss?6:0);game.round=game.time;game.nextSpawn=.5;game.cooldown=0;
  game.charge=0;game.fever=0;game.netLevel=1+Math.min(2,Math.floor(game.stage/10));
  game.fruits=[];game.nets=[];game.particles=[];game.labels=[];game.shake=0;game.tutorial=0;
  game.dragging=false;game.aim=null;game.musicWorld=-1;
- for(let i=0;i<6;i++)spawnFruit(true);
+ for(let i=0;i<(game.stage<5?6:5);i++)spawnFruit(true);
  hideOverlay();updateHud(true);availableMusic();sound('tap',1.12);
 }
 function pause(){
@@ -255,24 +278,36 @@ window.addEventListener('keydown',e=>{
  else if(game.mode==='menu'&&e.code==='ArrowLeft'){profile.selected=Math.max(0,profile.selected-1);save();renderMenu()}
 });
 function spawnFruit(begin,around){
- if(game.fruits.length>=18)return null;
- const roll=Math.random(),tier=game.world;
+ if(game.fruits.length>=(game.stage<6?15:game.stage<17?11:9))return null;
+ const roll=Math.random(),tier=game.world,level=game.stage;
  let name;
- if(roll<(game.stage<3?0:.028+tier*.008))name='rotten';
- else if(roll>.987-tier*.002)name='golden';
- else name=FRUITS[Math.floor(Math.random()*(Math.min(FRUITS.length,7+tier*2)))];
- const size=(Math.max(69,Math.min(110,W*.215)))*rand(.80,1.07)*(name==='watermelon'||name==='golden'?1.15:1);
+ if(roll<(level<3?0:.036+tier*.012))name='rotten';
+ else if(roll>.980-tier*.002)name='golden';
+ else name=FRUITS[Math.floor(Math.random()*Math.min(FRUITS.length,7+tier*2))];
+ const size=Math.max(63,Math.min(104,W*.206))*rand(.80,1.09)*
+  (name==='watermelon'||name==='golden'?1.13:1);
  const minY=136,maxY=Math.max(205,H-154);
  const side=Math.random()<.5?-1:1;
- const x=around?around.x+rand(-64,64):(begin?rand(size/2,W-size/2):(side<0?-size/2:W+size/2));
- const y=around?around.y+rand(-49,49):rand(minY+18,maxY-20);
- const speed=rand(34,65)*(1+game.stage*.023);
- const f={name,x,y,vx:(x<W*.5?1:-1)*speed,vy:rand(-12,12),size,
-  age:0,phase:rand(0,Math.PI*2),bob:rand(.7,1.3),uid:Math.random(),rot:rand(-.07,.07)};
+ const gap=level<3?43:level<8?76:level<17?104:122;
+ let x=around?around.x+rand(-gap,gap):(begin?rand(size/2,W-size/2):(side<0?-size/2:W+size/2));
+ let y=around?around.y+rand(-gap*.78,gap*.78):rand(minY+18,maxY-20);
+ x=clamp(x,-size/2,W+size/2);y=clamp(y,minY,maxY);
+ // Motion classes become available one at a time; fast apples are not introduced on level 1.
+ const movement=level<4?'drift':level<9?
+  (Math.random()<.40?'zigzag':'drift'):
+  (Math.random()<.24?'dash':Math.random()<.53?'zigzag':'swoop');
+ const speed=rand(34,59)*(1+level*.033)*(movement==='dash'?1.44:1);
+ const direction=x<W*.5?1:-1;
+ const f={name,x,y,vx:direction*speed,vy:rand(-13,13),size,
+  age:0,phase:rand(0,Math.PI*2),bob:rand(.7,1.3),
+  movement,uid:Math.random(),rot:rand(-.07,.07),lastDash:0};
  game.fruits.push(f);sprite(name);return f;
 }
 function spawnCluster(){
- const count=game.stage>=18&&Math.random()<.25?4:(Math.random()<.55?3:2);
+ const level=game.stage;
+ const count=level<3?(Math.random()<.65?3:2):
+             level<9?(Math.random()<.37?3:2):
+             (Math.random()<.42?3:2);
  let prev=null;
  for(let i=0;i<count;i++)prev=spawnFruit(false,i>0?prev:null)||prev;
 }
@@ -307,14 +342,17 @@ function catchFruit(f){
  if(game.charge>=100&&game.fever<=0){game.fever=8.5;game.charge=100;addLabel(W*.5,H*.4,'🌈 RAINBOW FEVER!','#cb68ad');sound('combo')}
  return true;
 }
-function launchNet(x,y){
+function launchNet(x,y,heldMs=0){
  if(game.mode!=='play'||game.cooldown>0||game.nets.length>=3)return false;
  const target={x:clamp(x,44,W-44),y:clamp(y,134,H-138)};
  const origin={x:W*.5,y:H-88};
- const rad=clamp(W*.25,76,125)+game.netLevel*12+(game.fever>0?53:0);
+ const charged=holdBonus(heldMs);
+ const rad=netRadius(game.stage)*(1+charged*.24)+(game.fever>0?36:0);
  const dist=Math.hypot(target.x-origin.x,target.y-origin.y);
- game.nets.push({from:origin,to:target,age:0,travel:clamp(dist/970,.21,.48),r:rad,hits:0,awarded:false});
- game.cooldown=game.fever>0?.18:.32;
+ game.nets.push({from:origin,to:target,age:0,travel:clamp(dist/1050,.22,.49),
+   r:rad,hits:0,awarded:false,charged});
+ game.shots++;
+ game.cooldown=(game.fever>0?.21:.38)+charged*.30;
  sound('throw',rand(.94,1.07));
  return true;
 }
@@ -325,7 +363,7 @@ function pointerAt(e){
 canvas.addEventListener('pointerdown',e=>{
  if(game.mode!=='play')return;
  e.preventDefault();
- game.dragging=true;game.aim=pointerAt(e);
+ game.dragging=true;game.aim=pointerAt(e);game.holdStarted=performance.now();
  try{canvas.setPointerCapture(e.pointerId)}catch(err){}
 });
 canvas.addEventListener('pointermove',e=>{
@@ -334,8 +372,9 @@ canvas.addEventListener('pointermove',e=>{
 canvas.addEventListener('pointerup',e=>{
  if(game.mode!=='play'||!game.dragging)return;
  e.preventDefault();
- const target=pointerAt(e);game.dragging=false;game.aim=null;
- launchNet(target.x,target.y);
+ const target=pointerAt(e);const heldMs=performance.now()-game.holdStarted;
+ game.dragging=false;game.aim=null;
+ launchNet(target.x,target.y,heldMs);
 });
 canvas.addEventListener('pointercancel',()=>{game.dragging=false;game.aim=null});
 function updateHud(force){
@@ -348,7 +387,8 @@ function updateHud(force){
  $('hudScore').textContent='SCORE '+game.score.toLocaleString();
  $('barFill').style.width=(clamp(game.caught/game.goal,0,1)*100)+'%';
  $('combo').textContent='COMBO '+game.combo+'  ·  x'+(1+Math.min(4,Math.floor(game.combo/5)));
- $('netStatus').textContent='MAGIC NET · LEVEL '+game.netLevel;
+ $('netStatus').textContent=game.cooldown>.10?'NET RELOADING…':
+    'HOLD FOR WIDER NET · '+rankName(game.stage);
  $('life').textContent='♥'.repeat(game.lives)+'♡'.repeat(3-game.lives);
  $('feverMeter').textContent=game.fever>0?'🌈 RAINBOW FEVER!':'RAINBOW '+Math.floor(game.charge)+'%';
 }
@@ -360,30 +400,42 @@ function tick(dt){
  game.nextSpawn-=dt;
  if(game.nextSpawn<=0){
   spawnCluster();
-  game.nextSpawn=rand(1.12,1.68)/(1+game.stage*.056);
+  // More fruit still spawn at high levels; success relies on accuracy,
+  // not being forced to wait for spawns.
+  game.nextSpawn=rand(1.08,1.54)/(1+Math.min(0.28,game.stage*.012));
  }
  const playMin=137,playMax=H-139;
  for(let i=game.fruits.length-1;i>=0;i--){
-  const f=game.fruits[i];f.age+=dt;f.x+=f.vx*dt;f.y+=f.vy*dt+Math.sin(f.age*3.3+f.phase)*dt*10;
+  const f=game.fruits[i];f.age+=dt;f.x+=f.vx*dt;
+  const sway=f.movement==='zigzag'?85:f.movement==='swoop'?66:12;
+  const rate=f.movement==='zigzag'?5.1:f.movement==='swoop'?2.8:3.3;
+  f.y+=f.vy*dt+Math.sin(f.age*rate+f.phase)*dt*sway;
+  if(f.movement==='dash'&&f.age-f.lastDash>2.3){
+   f.vx=clamp(f.vx*1.26,-205,205);f.lastDash=f.age;
+   burst(f.x,f.y,'#dcf6ff',3);
+  }
   if(f.x<f.size*.29){f.x=f.size*.29;f.vx=Math.abs(f.vx)}
   if(f.x>W-f.size*.29){f.x=W-f.size*.29;f.vx=-Math.abs(f.vx)}
   if(f.y<playMin){f.y=playMin;f.vy=Math.abs(f.vy)+3}
   if(f.y>playMax){f.y=playMax;f.vy=-Math.abs(f.vy)-3}
-  if(f.age>18)game.fruits.splice(i,1);
+  if(f.age>(game.stage<6?14:11.2))game.fruits.splice(i,1);
  }
  for(let i=game.nets.length-1;i>=0;i--){
   const n=game.nets[i];n.age+=dt;
-  if(n.age>=n.travel){
-   const radius=n.r*clamp((n.age-n.travel)/.20,.09,1);
+  if(n.age>=n.travel && n.age<=n.travel+.29){
+   const radius=n.r*clamp((n.age-n.travel)/.17,.09,1);
+   const hitsBefore=n.hits;
    for(let j=game.fruits.length-1;j>=0;j--){
     const f=game.fruits[j];
-    if(Math.hypot(f.x-n.to.x,f.y-n.to.y)<radius-f.size*.05){
+    if(Math.hypot(f.x-n.to.x,f.y-n.to.y)<radius-f.size*.105){
      const good=catchFruit(f);if(good)n.hits++;
      game.fruits.splice(j,1);
     }
    }
-   if(!n.awarded&&n.age>n.travel+.24){
+   if(hitsBefore===0&&n.hits>0)game.hitThrows++;
+   if(!n.awarded&&n.age>n.travel+.30){
     n.awarded=true;
+    if(n.hits>=2)game.doubleCatches++;
     if(n.hits>=3){
      game.score+=n.hits*75;addLabel(n.to.x,n.to.y-40,'JUICY x'+n.hits+'!','#b471d6');
      sound('combo');game.shake=.32;
@@ -391,7 +443,12 @@ function tick(dt){
    }
   }
   if(n.age>n.travel+.57){
-   if(n.hits===0){game.combo=0;addLabel(n.to.x,n.to.y,'SO CLOSE!','#a67d9d')}
+   if(n.hits===0){
+    game.combo=0;game.misses++;
+    const penalty=game.stage<3?0:game.stage<10?1.15:1.8;
+    game.time=Math.max(0,game.time-penalty);
+    addLabel(n.to.x,n.to.y,penalty?'MISSED! −'+penalty+'s':'SO CLOSE!','#a67d9d');
+   }
    game.nets.splice(i,1);
   }
  }
@@ -477,7 +534,8 @@ function drawFrame(timestamp){
   for(const n of game.nets)drawNet(n);
   if(game.dragging&&game.aim){
    const x=clamp(game.aim.x,44,W-44),y=clamp(game.aim.y,133,H-139);
-   const radius=clamp(W*.25,76,125)+game.netLevel*12+(game.fever>0?53:0);
+   const heldMs=performance.now()-game.holdStarted;
+   const radius=netRadius(game.stage)*(1+.24*holdBonus(heldMs))+(game.fever>0?36:0);
    ctx.save();ctx.setLineDash([10,7]);ctx.lineWidth=3;ctx.strokeStyle='rgba(255,255,255,.91)';
    ctx.beginPath();ctx.moveTo(W*.5,H-89);ctx.lineTo(x,y);ctx.stroke();
    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.stroke();ctx.restore();
@@ -494,9 +552,9 @@ function drawFrame(timestamp){
    ctx.fillStyle='rgba(255,255,255,.78)';
    ctx.beginPath();ctx.roundRect(boxX,y-34,boxW,73,17);ctx.fill();
    ctx.textAlign='center';ctx.fillStyle='#dc649a';ctx.font='bold 16px system-ui';
-   ctx.fillText('TAP OR DRAG TO THROW YOUR NET!',W*.5,y-5);
+   ctx.fillText('AIM AHEAD OF MOVING FRUITS!',W*.5,y-5);
    ctx.fillStyle='#6e9aa4';ctx.font='bold 12px system-ui';
-   ctx.fillText('Catch 3 fruits together for juicy combos!',W*.5,y+18);
+   ctx.fillText('Hold to widen your net · Misses cost time later!',W*.5,y+18);
   }
  }else{
   const shapes=['strawberry','orange','grape','apple','lemon','peach'];
@@ -523,9 +581,15 @@ if(new URLSearchParams(location.search).get('qa')==='1'){
  window.FruityQA={
   snapshot:()=>({mode:game.mode,stage:game.stage,world:game.world,unlocked:profile.unlocked,
     caught:game.caught,goal:game.goal,score:game.score,combo:game.combo,lives:game.lives,
-    netCount:game.nets.length,fruitCount:game.fruits.length,fever:game.fever,stars:totalStars()}),
+    netCount:game.nets.length,fruitCount:game.fruits.length,fever:game.fever,
+    stars:totalStars(),radius:netRadius(game.stage),shots:game.shots,
+    hitThrows:game.hitThrows,misses:game.misses,accuracy:accuracy(),
+    rank:rankName(game.stage),moving:game.fruits.map(f=>f.movement),
+    nets:game.nets.map(n=>({radius:Math.round(n.r),charged:n.charged})),
+    cooldown:Math.round(game.cooldown*100)/100,remaining:game.time}),
   start:(i)=>startLevel(i),
-  net:(x,y)=>launchNet(x,y),
+  unlockForTest:(i)=>{profile.unlocked=Math.max(profile.unlocked,clamp(i+1,1,30));startLevel(i);},
+  net:(x,y,heldMs=0)=>launchNet(x,y,heldMs),
   forceCluster:()=>{
    game.fruits=[];
    for(let i=0;i<3;i++){
