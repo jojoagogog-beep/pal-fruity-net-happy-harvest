@@ -1,248 +1,129 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
-		<title>Fruity Net: Happy Harvest — Cute Fruit Catching Game</title>
-        <meta name="description" content="Throw a colorful net, catch smiling fruits, make juicy combos and unlock 30 cheerful levels across 5 magical worlds.">
-        <meta name="theme-color" content="#CAF8E7">
-        <meta property="og:title" content="Fruity Net: Happy Harvest">
-        <meta property="og:description" content="30 levels, 5 colorful worlds and a bunny with a magical net.">
-        <meta property="og:image" content="cover.jpg">
-		<style>
-html, body, #canvas {
-	margin: 0;
-	padding: 0;
-	border: 0;
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#bff7e5">
+<meta name="description" content="Catch the sweetest smiles! Throw a magical net, collect cute fruit friends and conquer 30 cheerful levels across five rainbow worlds.">
+<meta property="og:title" content="Fruity Net! — Happy Harvest">
+<meta property="og:description" content="A colorful, feel-good fruit-catching arcade. Play free on mobile and desktop.">
+<meta property="og:image" content="cover.jpg">
+<link rel="icon" href="index.icon.png" type="image/png">
+<link rel="apple-touch-icon" href="index.apple-touch-icon.png">
+<title>FRUITY NET! — Happy Harvest</title>
+<style>
+:root{color-scheme:light;--ink:#365875;--pink:#ed5798;--mint:#86e6c5;--sky:#d9f8ff}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#c3fae5;font-family:ui-rounded,"Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;color:var(--ink);-webkit-tap-highlight-color:transparent}
+button{font:inherit;cursor:pointer;border:0;touch-action:manipulation}
+button:focus-visible{outline:4px solid #579db7;outline-offset:3px}
+#game{height:100dvh;min-height:300px;max-width:1100px;position:relative;overflow:hidden;margin:auto;background:linear-gradient(155deg,#bbf4fa,#e7ffe7);box-shadow:0 0 60px #5c9b9680}
+#field{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#game[data-state="play"] #field{cursor:crosshair}
+#topBar,#bottomBar{position:absolute;left:12px;right:12px;z-index:5;pointer-events:none;display:none}
+#topBar{top:max(10px,env(safe-area-inset-top))}
+#bottomBar{bottom:max(10px,env(safe-area-inset-bottom))}
+#game[data-state="play"] #topBar,#game[data-state="play"] #bottomBar{display:block}
+.hud{background:#ffffffeb;border:2px solid #fff;border-radius:22px;box-shadow:0 10px 30px #4e897123;backdrop-filter:blur(10px);padding:10px 13px}
+.hud-grid{display:flex;justify-content:space-between;gap:8px;align-items:center;text-align:center}
+.hud-grid .metric{flex:1;min-width:0}
+.label{font-size:11px;letter-spacing:.1em;font-weight:900;color:#6599a6}
+.number{font-size:clamp(15px,3.9vw,27px);font-weight:1000;line-height:1.2;white-space:nowrap}
+#hudTimer{color:#d95687}
+#hudGoal{color:#4c98a8}
+#hudScore{color:#8967a5}
+.progress{height:9px;border-radius:20px;background:#dceeea;overflow:hidden;margin-top:7px}
+.progress-fill{height:100%;width:0;background:linear-gradient(90deg,#70dbc2,#5bcce9,#d19aff);border-radius:20px;transition:width .18s}
+.hud-bot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#combo{font-weight:1000;font-size:18px;color:#d85d95}
+#life{font-weight:900;font-size:19px;letter-spacing:3px;color:#f07c9e;white-space:nowrap}
+#netStatus{font-size:12px;color:#7695a7;font-weight:900}
+#feverMeter{font-size:11px;color:#a16abc;font-weight:900}
+#pauseBtn{position:absolute;right:14px;top:102px;z-index:7;display:none;padding:11px 18px;border-radius:25px;color:#5d7b93;background:#ffffffed;box-shadow:0 4px 15px #55736d30;font-weight:900}
+#game[data-state="play"] #pauseBtn{display:block}
+#overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;overscroll-behavior:contain}
+#overlay.hidden{display:none}
+.panel{width:min(100%,580px);margin:auto;padding:clamp(18px,3.5vw,28px);background:#ffffffdf;border:2px solid #ffffff;box-shadow:0 18px 55px #4a938e33;border-radius:32px;backdrop-filter:blur(15px);text-align:center;position:relative}
+.eyebrow{font-size:11px;letter-spacing:.18em;font-weight:1000;color:#5c9a9a;text-transform:uppercase}
+.title{font-size:clamp(39px,9vw,69px);font-weight:1000;color:#da4b8d;line-height:1.05;margin:7px 0 1px;letter-spacing:-.035em;text-shadow:2px 3px 0 #fff,0 3px 8px #f199be55}
+.subtitle{font-size:clamp(17px,4.5vw,27px);font-weight:1000;color:#59aaa5;margin:0 0 4px}
+.tagline{font-size:clamp(12px,2.8vw,15px);color:#698fa0;margin:8px auto 0;max-width:440px;line-height:1.5}
+.hero-fruits{height:clamp(100px,19vh,170px);display:flex;align-items:center;justify-content:center;gap:0;margin:5px 0 4px;position:relative}
+.hero-fruits img{max-width:23%;width:125px;max-height:100%;object-fit:contain;filter:drop-shadow(0 10px 8px #8aa8a05c);animation:float 3.3s ease-in-out infinite}
+.hero-fruits img:nth-child(2){animation-delay:.4s}.hero-fruits img:nth-child(3){animation-delay:1.1s}.hero-fruits img:nth-child(4){animation-delay:1.7s}
+.hero-fruits .bunny{max-width:35%;width:170px;transform:translateY(4px)}
+@keyframes float{0%,100%{translate:0 3px}50%{translate:0 -9px}}
+.stagebox{background:linear-gradient(130deg,#e5fff2,#edf5ff);border-radius:22px;border:2px solid #fff;padding:10px 12px;margin:10px 0}
+.stage-title{font-weight:1000;color:#df689b;font-size:clamp(21px,5.8vw,32px)}
+.stage-sub{color:#6c92a1;font-size:12px;font-weight:900}
+.button-row{display:flex;gap:10px;justify-content:center;margin-top:10px}
+.btn{background:linear-gradient(115deg,#ff7fab,#f66ca3);border-radius:17px;color:#fff;font-weight:1000;box-shadow:0 6px 0 #b14c8560,0 13px 18px #c080a52a;min-height:50px;padding:12px 18px;transition:transform .11s ease,filter .12s ease;flex:1}
+.btn:active{transform:translateY(3px);box-shadow:0 3px 0 #b14c8560}
+.btn.mint{background:linear-gradient(115deg,#8ae6be,#60caaa);box-shadow:0 6px 0 #4ba88960}
+.btn.lav{background:linear-gradient(115deg,#d0b5fa,#aaa8f3);box-shadow:0 6px 0 #8a79b660}
+.btn.white{color:#66909e;background:#fff;border:2px solid #d3e8e9;box-shadow:none}
+.btn.small{font-size:13px;min-height:45px;padding:8px}
+.btn:disabled{background:#dee5e8!important;box-shadow:none;opacity:.6;cursor:not-allowed}
+.btn.primary{font-size:clamp(16px,4.2vw,24px);width:100%;margin-top:9px;min-height:60px}
+.statusline{font-weight:900;color:#77929f;font-size:12px;margin-top:12px}
+.starline{font-size:clamp(31px,9vw,49px);color:#e7be62;letter-spacing:.08em;text-shadow:0 2px #fff}
+.result-title{font-size:clamp(29px,7vw,48px);margin:7px 0;color:#dd568f}
+.result-score{font-size:clamp(31px,8vw,48px);font-weight:1000;color:#638eaa;margin:8px}
+.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:13px 0}
+.mini-card{background:#ffffffac;border:1px solid #e5f2ed;border-radius:14px;padding:11px}
+.mini-card strong{display:block;color:#6f8ca0;font-size:19px}
+.mini-card small{font-size:11px;color:#829eaa;font-weight:900}
+.world-list{max-height:min(49vh,420px);overflow-y:auto;scrollbar-color:#a6cfc6 transparent;padding:7px 2px}
+.level-group{text-align:left;font-size:13px;font-weight:1000;color:#589fa7;margin:12px 0 6px;letter-spacing:.06em}
+.level-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.level-cell{padding:11px 6px;border-radius:14px;background:#e2f9ef;color:#58889d;font-size:12px;font-weight:1000}
+.level-cell:not(:disabled){background:#c5f0e1}
+.level-cell.current{background:#ffb9d1;color:#a94c7b}
+.level-cell:disabled{background:#f0f3f3;color:#a0abb2}
+.level-cell small{font-size:10px;display:block;margin-top:4px;color:inherit}
+#floating{position:absolute;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+.float-label{position:absolute;z-index:3;font-weight:1000;font-size:clamp(17px,4vw,25px);text-shadow:0 2px 1px white,0 0 8px white;animation:pop 1s ease-out forwards;white-space:nowrap;transform:translate(-50%,0)}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,5px) scale(.65)}20%{opacity:1;transform:translate(-50%,-10px) scale(1.22)}100%{opacity:0;transform:translate(-50%,-65px) scale(.9)}}
+#soundToggle{position:absolute;right:14px;top:max(12px,env(safe-area-inset-top));z-index:11;padding:10px 14px;border-radius:20px;background:#fffffff2;color:#648fa2;font-weight:1000;font-size:12px;box-shadow:0 3px 13px #8eb5a144}
+#game[data-state="play"] #soundToggle{top:102px;right:110px}
+#game[data-state="play"] #soundToggle{display:none}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#dff9ef;font-size:25px;font-weight:1000;color:#d9609d;z-index:30;transition:opacity .3s}
+#loading.gone{opacity:0;pointer-events:none}
+#offline{display:none;position:absolute;bottom:96px;left:16px;right:16px;text-align:center;padding:8px;border-radius:14px;background:#fff6;color:#ba6b6b;font-size:11px;z-index:6}
+@media(max-height:680px){
+ .panel{padding:14px 18px}.hero-fruits{height:92px}.title{font-size:44px}.subtitle{font-size:20px}
+ .tagline{margin:4px auto}.stagebox{margin:6px 0}.button-row{margin-top:6px}
+ .btn{min-height:43px;padding:9px}.btn.primary{min-height:50px}
 }
-
-body {
-	color: white;
-	background-color: #E7FFF4;
-	overflow: hidden;
-	touch-action: none;
-}
-
-#canvas {
-	display: block;
-}
-
-#canvas:focus {
-	outline: none;
-}
-
-#status, #status-splash, #status-progress {
-	position: absolute;
-	left: 0;
-	right: 0;
-}
-
-#status, #status-splash {
-	top: 0;
-	bottom: 0;
-}
-
-#status {
-	background-color: #E7FFF4;
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	align-items: center;
-	visibility: hidden;
-}
-
-#status-splash {
-	max-height: 100%;
-	max-width: 100%;
-	margin: auto;
-}
-
-#status-splash.show-image--false {
-	display: none;
-}
-
-#status-splash.fullsize--true {
-	height: 100%;
-	width: 100%;
-	object-fit: contain;
-}
-
-#status-splash.use-filter--false {
-	image-rendering: pixelated;
-}
-
-#status-progress, #status-notice {
-	display: none;
-}
-
-#status-progress {
-	bottom: 10%;
-	width: 50%;
-	margin: 0 auto;
-}
-
-#status-notice {
-	background-color: #5b3943;
-	border-radius: 0.5rem;
-	border: 1px solid #9b3943;
-	color: #e0e0e0;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	line-height: 1.3;
-	margin: 0 2rem;
-	overflow: hidden;
-	padding: 1rem;
-	text-align: center;
-	z-index: 1;
-}
-		
-body { background: linear-gradient(155deg, #b5f2ea 0%, #ffe0ec 100%) !important; }
-#status { background: linear-gradient(150deg, #b5f2ea 0%, #ffe0ec 100%) !important; }
-#status-splash { max-height: min(90vh, 650px); filter: drop-shadow(0 10px 20px rgba(134,93,142,.12)); }
-#status-notice { background:#fff5fa !important;color:#714e76 !important;border:2px solid #ffd5e9 !important; }
-#status-progress { height: 12px; accent-color: #ff8aa8; border-radius: 9px; }
+@media(max-width:360px){#topBar,#bottomBar{left:6px;right:6px}.hud{padding:8px}.label{font-size:9px}.number{font-size:17px}.panel{padding:16px}.hero-fruits{height:105px}.btn.small{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.hero-fruits img{animation:none}.float-label{animation:none}}
 </style>
-		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
-<link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
-
-	</head>
-	<body>
-		<canvas id="canvas">
-			Your browser does not support the canvas tag.
-		</canvas>
-
-		<noscript>
-			Your browser does not support JavaScript.
-		</noscript>
-
-		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
-			<div id="status-notice"></div>
-		</div>
-
-		<!-- FRUITY_FAST_WASM_GZIP_V1: compress Godot WebAssembly streaming download -->
-<script>
-(function () {
-  const fetchOriginal = window.fetch.bind(window);
-  window.fetch = function (resource, options) {
-    const path = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : String(resource));
-    if (!/(?:^|\/)index\.wasm(?:[?#].*)?$/.test(path) || typeof DecompressionStream === 'undefined') {
-      return fetchOriginal(resource, options);
-    }
-    return fetchOriginal('index.wasm.gz', {credentials:'same-origin'}).then(function (compressed) {
-      if (!compressed.ok || !compressed.body) return fetchOriginal(resource, options);
-      const stream = compressed.body.pipeThrough(new DecompressionStream('gzip'));
-      return new Response(stream, {status:200,headers:{'Content-Type':'application/wasm'}});
-    }).catch(function () { return fetchOriginal(resource, options); });
-  };
-})();
-</script>
-<script src="index.js"></script>
-		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":5567096,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
-const GODOT_THREADS_ENABLED = false;
-const engine = new Engine(GODOT_CONFIG);
-
-(function () {
-	const statusOverlay = document.getElementById('status');
-	const statusProgress = document.getElementById('status-progress');
-	const statusNotice = document.getElementById('status-notice');
-
-	let initializing = true;
-	let statusMode = '';
-
-	function setStatusMode(mode) {
-		if (statusMode === mode || !initializing) {
-			return;
-		}
-		if (mode === 'hidden') {
-			statusOverlay.remove();
-			initializing = false;
-			return;
-		}
-		statusOverlay.style.visibility = 'visible';
-		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
-		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-		statusMode = mode;
-	}
-
-	function setStatusNotice(text) {
-		while (statusNotice.lastChild) {
-			statusNotice.removeChild(statusNotice.lastChild);
-		}
-		const lines = text.split('\n');
-		lines.forEach((line) => {
-			statusNotice.appendChild(document.createTextNode(line));
-			statusNotice.appendChild(document.createElement('br'));
-		});
-	}
-
-	function displayFailureNotice(err) {
-		console.error(err);
-		if (err instanceof Error) {
-			setStatusNotice(err.message);
-		} else if (typeof err === 'string') {
-			setStatusNotice(err);
-		} else {
-			setStatusNotice('An unknown error occurred.');
-		}
-		setStatusMode('notice');
-		initializing = false;
-	}
-
-	const missing = Engine.getMissingFeatures({
-		threads: GODOT_THREADS_ENABLED,
-	});
-
-	if (missing.length !== 0) {
-		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
-			let serviceWorkerRegistrationPromise;
-			try {
-				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
-			} catch (err) {
-				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
-			}
-			// There's a chance that installing the service worker would fix the issue
-			Promise.race([
-				serviceWorkerRegistrationPromise.then((registration) => {
-					if (registration != null) {
-						return Promise.reject(new Error('Service worker already exists.'));
-					}
-					return registration;
-				}).then(() => engine.installServiceWorker()),
-				// For some reason, `getRegistration()` can stall
-				new Promise((resolve) => {
-					setTimeout(() => resolve(), 2000);
-				}),
-			]).then(() => {
-				// Reload if there was no error.
-				window.location.reload();
-			}).catch((err) => {
-				console.error('Error while registering service worker:', err);
-			});
-		} else {
-			// Display the message as usual
-			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
-			displayFailureNotice(missingMsg + missing.join('\n'));
-		}
-	} else {
-		setStatusMode('progress');
-		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
-				}
-			},
-		}).then(() => {
-			setStatusMode('hidden');
-		}, displayFailureNotice);
-	}
-}());
-		</script>
-	</body>
+</head>
+<body>
+<main id="game" data-state="menu" aria-label="Fruity Net, colorful arcade fruit catching game">
+  <canvas id="field" aria-label="Catch smiling fruits by tapping and releasing a magic net"></canvas>
+  <div id="topBar" role="status">
+    <div class="hud">
+      <div class="hud-grid">
+        <div class="metric"><div class="label" id="stageLabel">LEVEL 01</div><div class="number" id="worldLabel">MINT</div></div>
+        <div class="metric"><div class="label">FRUITS</div><div class="number" id="hudGoal">0 / 14</div></div>
+        <div class="metric"><div class="label">TIME LEFT</div><div class="number" id="hudTimer">59s</div></div>
+      </div>
+      <div class="progress"><div class="progress-fill" id="barFill"></div></div>
+      <div class="label" id="hudScore" style="text-align:center;margin-top:5px">SCORE 0</div>
+    </div>
+  </div>
+  <button id="pauseBtn" aria-label="Pause game">Ⅱ PAUSE</button>
+  <div id="bottomBar" role="status"><div class="hud hud-bot">
+    <div><div id="combo">COMBO 0</div><div id="netStatus">MAGIC NET · LEVEL 1</div></div>
+    <div style="text-align:right"><div id="life" aria-label="3 hearts remaining">♥♥♥</div><div id="feverMeter">RAINBOW 0%</div></div>
+  </div></div>
+  <div id="floating" aria-hidden="true"></div>
+  <section id="overlay"></section>
+  <button id="soundToggle" aria-label="Toggle game sound">♫ ON</button>
+  <div id="loading">🍓 Getting the harvest ready…</div>
+  <div id="offline">Music not available. Catching still works!</div>
+</main>
+<script src="fast-game.js" defer></script>
+</body>
 </html>
-
